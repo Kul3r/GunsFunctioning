@@ -1,0 +1,57 @@
+local repSto = game:GetService("ReplicatedStorage")
+local userInputSer = game:GetService("UserInputService")
+local playersSer = game:GetService("Players")
+local runSer = game:GetService("RunService")
+
+local player = playersSer.LocalPlayer
+local character = script.Parent
+local humanoid : Humanoid = character.Humanoid
+
+local mouseConnection
+userInputSer.InputBegan:Connect(function(input, processed)
+	if processed then return end
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then 
+		local equipment = nil
+		if character:FindFirstChildOfClass("Tool") then
+			equipment = character:FindFirstChildOfClass("Tool")
+		end
+		if equipment then
+			local mouse = player:GetMouse()
+			repSto.Equipment.EquipmentReplicator:FireServer(equipment, mouse.Hit.Position, "MouseDown")
+		end
+	end
+end)	
+
+userInputSer.InputEnded:Connect(function(input, processed)
+	if processed then return end
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then 
+		local equipment = nil
+		if character:FindFirstChildOfClass("Tool") then
+			equipment = character:FindFirstChildOfClass("Tool")
+		end
+		if equipment then
+			local mouse = player:GetMouse()
+			repSto.Equipment.EquipmentReplicator:FireServer(equipment, mouse.Hit.Position, "MouseUp")
+		end
+	end
+end)
+
+repSto.Equipment.GetMousePosition.OnClientInvoke = function()
+	if humanoid:GetState() == Enum.HumanoidStateType.Dead then
+		return nil
+	end
+	
+	local loopedTimes = 1
+	local mousePos
+	repeat
+		loopedTimes += 1
+		mousePos = player:GetMouse().Hit.Position
+	until mousePos or loopedTimes >= 10
+	
+	if loopedTimes >= 10 then
+		print("mousePos is unavaliable")
+		return nil
+	else
+		return mousePos
+	end
+end
