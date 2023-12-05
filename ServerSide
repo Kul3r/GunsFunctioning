@@ -1,0 +1,200 @@
+local runSer = game:GetService("RunService")
+local repSto = game:GetService("ReplicatedStorage")
+local serSto = game:GetService("ServerStorage")
+local players = game:GetService("Players")
+local prefabs = workspace.Prefabs.AmmoPrefabs
+
+local equipmentClass = require(script.Parent:FindFirstChild("EquipmentClass"))
+
+-----------------------------------------------------weaponFunctioning
+local playerChargingTable = {}
+function bowFunctioning(player : Player, weapon : Tool, mousePos : Vector3, inputType : string)
+	local weaponVarTable = rangedWeaponsTable[weapon.Name]
+
+	if inputType == "MouseDown" then
+		local isReloading = equipmentClass:Reload(player, weapon, nil, false)
+		if isReloading then return end
+
+		playerChargingTable[player.UserId] = os.clock()
+	elseif inputType == "MouseUp" then
+		if not playerChargingTable[player.UserId] then return end
+
+		local finalChargingTime = os.clock() - playerChargingTable[player.UserId]
+		playerChargingTable[player.UserId] = nil
+
+		local idealChargingTime = weaponVarTable.chargingTime
+		local direction = (mousePos - weapon.PrimaryPart.Position).Unit
+		local damage
+
+		if finalChargingTime >= idealChargingTime then
+			damage = weaponVarTable.damage
+		elseif finalChargingTime < idealChargingTime then
+			damage = weaponVarTable.damage * (finalChargingTime / idealChargingTime)
+		elseif finalChargingTime < 0 then
+			damage = 0
+		end
+		
+		for _, v in players:GetPlayers() do
+			repSto.Equipment.ProxyRemote:FireClient(v, player, "arrow", damage, weapon.Name, CFrame.new(weapon.PrimaryPart.Position, weapon.PrimaryPart.Position + direction) * CFrame.Angles(math.rad(-90), 0, 0))
+		end
+		repSto.Equipment.TriggerProjectileServerScript:Fire(damage, "arrow", player, weapon.Name, CFrame.new(weapon.PrimaryPart.Position, weapon.PrimaryPart.Position + direction) * CFrame.Angles(math.rad(-90), 0, 0))
+		
+		equipmentClass:Reload(player, weapon, weaponVarTable.reloadTime, true)
+
+		--existe um delay grande entre o a posição da arma utilizada pelo spawn da bala e a posição real da arma
+	end
+end
+
+
+function manualFunctioning(player : Player, weapon : Tool, mousePos : Vector3, inputType : string)
+	if inputType == "MouseDown" then
+		local isReloading = equipmentClass:Reload(player, weapon, nil, false)
+		if isReloading then return end
+
+		local weaponVarTable = rangedWeaponsTable[weapon.Name]
+		local damage = weaponVarTable.damage
+		local direction = (mousePos - weapon.PrimaryPart.Position).Unit
+		
+		for _, v in players:GetPlayers() do
+			repSto.Equipment.ProxyRemote:FireClient(v, player, "bullet", damage, weapon.Name, CFrame.new(weapon.PrimaryPart.Position, weapon.PrimaryPart.Position + direction) * CFrame.Angles(0, math.rad(90), 0))
+		end
+		repSto.Equipment.TriggerProjectileServerScript:Fire(damage, "bullet", player, weapon.Name, CFrame.new(weapon.PrimaryPart.Position, weapon.PrimaryPart.Position + direction) * CFrame.Angles(0, math.rad(90), 0))
+		
+		equipmentClass:Reload(player, weapon, weaponVarTable.reloadTime, true)
+	end
+end
+
+
+local playerShootingTable = {}
+runSer.Heartbeat:Connect(function(deltaTime)
+	for userId, varTable in playerShootingTable do
+		
+		local player = players:GetPlayerByUserId(userId)
+		local weapon = varTable.weapon
+		
+		if not player.Character:FindFirstChild(weapon.Name) or not weapon.PrimaryPart then
+			varTable.isClicking = false
+		end
+	
+		local weaponVarTable = rangedWeaponsTable[weapon.Name]
+		local magazineCapacity = weaponVarTable.magazineCapacity
+		local timeBetweenShots = 1 / weaponVarTable.fireRate
+		
+		local mousePos = repSto.Equipment.GetMousePosition:InvokeClient(player)
+		if not mousePos then
+			varTable.isClicking = false
+		end
+		
+		if not equipmentClass:Reload(player, weapon, nil, false) then
+			varTable.canShoot = true
+		end
+		
+		if varTable.isClicking then
+			if varTable.canShoot then
+				if varTable.count >= magazineCapacity then
+					varTable.canShoot = false
+					varTable.count = 0
+					equipmentClass:Reload(player, weapon, weaponVarTable.reloadTime, true)
+				else
+					if os.clock() - varTable.lastShotTime < timeBetweenShots then return end
+
+					varTable.lastShotTime = os.clock()
+					varTable.count += 1
+
+					local damage = weaponVarTable.damage
+					local direction = (mousePos - weapon.PrimaryPart.Position).Unit
+
+					for _, v in players:GetPlayers() do
+						repSto.Equipment.ProxyRemote:FireClient(v, player, "bullet", damage, weapon.Name, CFrame.new(weapon.PrimaryPart.Position, weapon.PrimaryPart.Position + direction) * CFrame.Angles(0, math.rad(90), 0))
+					end
+					repSto.Equipment.TriggerProjectileServerScript:Fire(damage, "bullet", player, weapon.Name, CFrame.new(weapon.PrimaryPart.Position, weapon.PrimaryPart.Position + direction) * CFrame.Angles(0, math.rad(90), 0))
+
+				end
+			end
+		end
+		playerShootingTable[player.UserId].isClicking = varTable.isClicking
+		playerShootingTable[player.UserId].canShoot = varTable.canShoot
+		playerShootingTable[player.UserId].count = varTable.count
+		playerShootingTable[player.UserId].lastShotTime = varTable.lastShotTime
+	end
+end)
+function automaticFunctioning(player : Player, weapon : Tool, mousePos : Vector3, inputType : string)
+	if inputType == "MouseDown" then
+		if equipmentClass:Reload(player, weapon, nil, false) then return end
+
+		if not playerShootingTable[player.UserId] then
+			playerShootingTable[player.UserId] = {count = 0, isClicking = true, lastShotTime = 0, canShoot = true, ["weapon"] = weapon}
+		else
+			if playerShootingTable[player.UserId].weapon ~= weapon then
+				playerShootingTable[player.UserId] = {count = 0, isClicking = true, lastShotTime = 0, canShoot = true, ["weapon"] = weapon}
+			end
+			playerShootingTable[player.UserId].isClicking = true
+		end
+		
+		
+	elseif inputType == "MouseUp" then
+		if not playerShootingTable[player.UserId] then return end
+		playerShootingTable[player.UserId].isClicking = false
+	end
+end
+
+function laserFunctioning(player : Player, weapon : Tool, mouseRay : Ray, inputType : string)
+
+
+end
+
+-------------------------------------------replication
+
+function subClassSeparation(player, equipment : Tool, mousePos : Vector3, inputType : string, equipmentSubclass)
+
+	
+	if equipmentSubclass == "Bow" then
+		bowFunctioning(player, equipment, mousePos, inputType)
+	elseif equipmentSubclass == "Manual" then
+		manualFunctioning(player, equipment, mousePos, inputType)
+	elseif equipmentSubclass == "Auto" then
+		automaticFunctioning(player, equipment, mousePos, inputType)
+	elseif equipmentSubclass == "Laser" then
+		laserFunctioning(player, equipment, mousePos, inputType)
+	end
+end
+
+local mainClass = "RangedWeapon"
+
+
+repSto.Equipment.EquipmentReplicator.OnServerEvent:Connect(function(player, equipment : Tool, mousePos : Vector3, inputType : string)
+	if not equipment:IsA("Tool") then print("t") return end
+	if not mousePos.Magnitude then print("r") return end
+	if not inputType:reverse() then print("s") return end
+
+	local verification, subClass = equipmentClass:classSeparation(player, equipment, mousePos, inputType, mainClass)
+	
+	if verification then
+		subClassSeparation(player, equipment, mousePos, inputType, subClass)
+	end
+end)
+
+------------------------------------------vars
+
+rangedWeaponsTable = {
+
+	SimpleBow = {
+		reloadTime = 0.75,
+		chargingTime = 0.75,
+		damage = 5,
+	};
+
+	SimpleManualGun = {
+		reloadTime = 1.5,
+		damage = 10,
+	};
+
+	SimpleAutoGun = {
+		reloadTime = 2,
+		damage = 8,
+		magazineCapacity = 20,
+		fireRate = 10,
+	}
+
+
+}
